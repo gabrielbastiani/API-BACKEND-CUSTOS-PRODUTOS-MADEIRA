@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UnitOfMeasure {
+  MM
+  CM
+  M
+  M2
+  M3
+  UNIDADE
+  GRAMA
+  KG
+  ML
+  LITRO
+}
+
+model Supplier {
+  id        String     @id @default(uuid())
+  name      String
+  contact   String?
+  email     String?
+  phone     String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  materials RawMaterial[]
+
+  @@map("suppliers")
+}
+
+model RawMaterial {
+  id              String        @id @default(uuid())
+  name            String
+  description     String?
+  supplierId      String?
+  supplier        Supplier?     @relation(fields: [supplierId], references: [id])
+
+  purchaseUnit    UnitOfMeasure  // unidade em que é comprado (ex: M para tábua de 3m)
+  purchaseQty     Decimal        @db.Decimal(12, 4) // quantidade comprada nessa unidade (ex: 3 metros)
+  purchasePrice   Decimal        @db.Decimal(12, 2) // preço pago pelo lote comprado
+
+  usageUnit       UnitOfMeasure  // unidade usada no consumo (ex: CM)
+  conversionFactor Decimal       @db.Decimal(12, 6) // quantas usageUnit existem em 1 purchaseUnit
+
+  stockQty        Decimal        @default(0) @db.Decimal(12, 4) // estoque atual em usageUnit
+  minStockAlert   Decimal?       @db.Decimal(12, 4)
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  productItems    ProductMaterial[]
+
+  @@map("raw_materials")
+}
+
+model LaborRate {
+  id          String   @id @default(uuid())
+  name        String   // ex: "Marceneiro Sênior"
+  hourlyRate  Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  productLabors ProductLabor[]
+
+  @@map("labor_rates")
+}
+
+model Product {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  marginPercent   Decimal  @default(0) @db.Decimal(6, 2) // margem de lucro desejada em %
+  overheadPercent Decimal  @default(0) @db.Decimal(6, 2) // custos indiretos (energia, aluguel etc) em %
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  materials       ProductMaterial[]
+  labors          ProductLabor[]
+  costHistory     ProductCostSnapshot[]
+
+  @@map("products")
+}
+
+model ProductMaterial {
+  id            String      @id @default(uuid())
+  productId     String
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  rawMaterialId String
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id])
+
+  quantityUsed  Decimal     @db.Decimal(12, 4) // quantidade usada, na usageUnit da matéria-prima
+  wastePercent  Decimal     @default(0) @db.Decimal(6, 2) // percentual de perda/desperdício
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("product_materials")
+}
+
+model ProductLabor {
+  id            String     @id @default(uuid())
+  productId     String
+  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  laborRateId   String
+  laborRate     LaborRate  @relation(fields: [laborRateId], references: [id])
+
+  hoursSpent    Decimal    @db.Decimal(8, 2)
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@map("product_labors")
+}
+
+model ProductCostSnapshot {
+  id               String   @id @default(uuid())
+  productId        String
+  product          Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  materialsCost    Decimal  @db.Decimal(12, 2)
+  laborCost        Decimal  @db.Decimal(12, 2)
+  overheadCost     Decimal  @db.Decimal(12, 2)
+  subtotalCost     Decimal  @db.Decimal(12, 2)
+  marginValue      Decimal  @db.Decimal(12, 2)
+  finalPrice       Decimal  @db.Decimal(12, 2)
+
+  breakdown        Json     // detalhamento completo em JSON
+  createdAt        DateTime @default(now())
+
+  @@map("product_cost_snapshots")
+}
