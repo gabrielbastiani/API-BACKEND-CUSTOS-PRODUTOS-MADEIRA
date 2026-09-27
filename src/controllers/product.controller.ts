@@ -7,24 +7,48 @@ async function loadProductWithRelations(productId: string) {
   const product = await prisma.product.findUnique({
     where: { id: productId },
     include: {
-      materials: { include: { rawMaterial: true } },
+      materials: { include: { rawMaterial: { include: { suppliers: true } } } },
       labors: { include: { laborRate: true } },
+      overheadItems: true,
     },
   });
   if (!product) throw new ApiError(404, 'Produto não encontrado.');
   return product;
 }
 
+/**
+ * Calcula o custo direto (materiais + mão de obra) de um produto,
+ * usado como base para converter a soma dos itens de overhead em percentual.
+ */
+async function calculateDirectCost(productId: string): Promise<number> {
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    include: {
+      materials: { include: { rawMaterial: { include: { suppliers: true } } } },
+      labors: { include: { laborRate: true } },
+    },
+  });
+
+  if (!product) return 0;
+
+  const result = calculateProductPricing(product.materials, product.labors, 0, 0);
+  return result.materialsCost + result.laborCost;
+}
+
+function sumOverheadItems(items: { value: number }[]): number {
+  return items.reduce((sum, item) => sum + item.value, 0);
+}
+
 export async function createProduct(req: Request, res: Response, next: NextFunction) {
   try {
-    const { name, description, marginPercent, overheadPercent, materials, labors } = req.body;
+    const { name, description, marginPercent, overheadItems, materials, labors } = req.body;
 
     const product = await prisma.product.create({
       data: {
         name,
         description,
         marginPercent: marginPercent ?? 0,
-        overheadPercent: overheadPercent ?? 0,
+        overheadPercent: 0,
         materials: materials
           ? {
               create: materials.map((m: any) => ({
@@ -42,12 +66,42 @@ export async function createProduct(req: Request, res: Response, next: NextFunct
               })),
             }
           : undefined,
+        overheadItems:
+          overheadItems && overheadItems.length > 0
+            ? {
+                create: overheadItems.map((item: any) => ({
+                  name: item.name,
+                  value: item.value,
+                })),
+              }
+            : undefined,
       },
       include: {
         materials: { include: { rawMaterial: true } },
         labors: { include: { laborRate: true } },
+        overheadItems: true,
       },
     });
+
+    // Recalcula o overheadPercent com base no custo direto real do produto recém-criado
+    if (overheadItems && overheadItems.length > 0) {
+      const directCost = await calculateDirectCost(product.id);
+      const overheadTotal = sumOverheadItems(overheadItems);
+      const overheadPercent = directCost > 0 ? (overheadTotal / directCost) * 100 : 0;
+
+      const updated = await prisma.product.update({
+        where: { id: product.id },
+        data: { overheadPercent },
+        include: {
+          materials: { include: { rawMaterial: true } },
+          labors: { include: { laborRate: true } },
+          overheadItems: true,
+        },
+      });
+
+      res.status(201).json({ success: true, data: updated });
+      return;
+    }
 
     res.status(201).json({ success: true, data: product });
   } catch (error) {
@@ -59,7 +113,7 @@ export async function listProducts(_req: Request, res: Response, next: NextFunct
   try {
     const products = await prisma.product.findMany({
       orderBy: { name: 'asc' },
-      include: { materials: true, labors: true },
+      include: { materials: true, labors: true, overheadItems: true },
     });
     res.json({ success: true, data: products });
   } catch (error) {
@@ -78,10 +132,45 @@ export async function getProduct(req: Request, res: Response, next: NextFunction
 
 export async function updateProduct(req: Request, res: Response, next: NextFunction) {
   try {
-    const product = await prisma.product.update({
-      where: { id: req.params.id },
-      data: req.body,
+    const { id } = req.params;
+    const { name, description, marginPercent, overheadItems } = req.body;
+
+    await prisma.product.findUniqueOrThrow({ where: { id } }).catch(() => {
+      throw new ApiError(404, 'Produto não encontrado.');
     });
+
+    const updateData: Record<string, unknown> = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (marginPercent !== undefined) updateData.marginPercent = marginPercent;
+
+    if (overheadItems !== undefined) {
+      // Remove os itens antigos e recria com a lista enviada, garantindo que
+      // adições, remoções e edições sejam refletidas em uma única operação.
+      await prisma.productOverheadItem.deleteMany({ where: { productId: id } });
+
+      updateData.overheadItems = {
+        create: overheadItems.map((item: any) => ({
+          name: item.name,
+          value: item.value,
+        })),
+      };
+
+      const directCost = await calculateDirectCost(id);
+      const overheadTotal = sumOverheadItems(overheadItems);
+      updateData.overheadPercent = directCost > 0 ? (overheadTotal / directCost) * 100 : 0;
+    }
+
+    const product = await prisma.product.update({
+      where: { id },
+      data: updateData,
+      include: {
+        materials: { include: { rawMaterial: true } },
+        labors: { include: { laborRate: true } },
+        overheadItems: true,
+      },
+    });
+
     res.json({ success: true, data: product });
   } catch (error) {
     next(error);

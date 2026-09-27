@@ -7,10 +7,13 @@ type MaterialForCalc = {
   rawMaterial: {
     id: string;
     name: string;
-    purchaseQty: Prisma.Decimal | number;
-    purchasePrice: Prisma.Decimal | number;
     conversionFactor: Prisma.Decimal | number;
     usageUnit: string;
+    suppliers: {
+      isDefault: boolean;
+      purchaseQty: Prisma.Decimal | number;
+      purchasePrice: Prisma.Decimal | number;
+    }[];
   };
 };
 
@@ -66,17 +69,31 @@ function round2(value: number): number {
 }
 
 /**
- * Calcula o custo unitário na unidade de uso a partir do preço/quantidade de compra.
+ * Calcula o custo unitário na unidade de uso a partir do preço/quantidade de
+ * compra do fornecedor marcado como padrão para essa matéria-prima.
  * Ex: tábua comprada por R$45 com 3 metros (purchaseQty=3) e conversionFactor=100
  * (100 cm em 1 metro) => custo por cm = 45 / (3 * 100)
  */
 export function calculateUnitCost(rawMaterial: {
-  purchaseQty: Prisma.Decimal | number;
-  purchasePrice: Prisma.Decimal | number;
+  id: string;
+  name: string;
   conversionFactor: Prisma.Decimal | number;
+  suppliers: {
+    isDefault: boolean;
+    purchaseQty: Prisma.Decimal | number;
+    purchasePrice: Prisma.Decimal | number;
+  }[];
 }): number {
-  const purchaseQty = toNumber(rawMaterial.purchaseQty);
-  const purchasePrice = toNumber(rawMaterial.purchasePrice);
+  const defaultSupplier = rawMaterial.suppliers.find((s) => s.isDefault);
+
+  if (!defaultSupplier) {
+    throw new Error(
+      `A matéria-prima "${rawMaterial.name}" não possui um fornecedor padrão definido.`
+    );
+  }
+
+  const purchaseQty = toNumber(defaultSupplier.purchaseQty);
+  const purchasePrice = toNumber(defaultSupplier.purchasePrice);
   const conversionFactor = toNumber(rawMaterial.conversionFactor);
 
   const totalUsageUnitsInPurchase = purchaseQty * conversionFactor;
