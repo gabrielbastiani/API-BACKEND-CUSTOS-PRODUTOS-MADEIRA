@@ -141,14 +141,14 @@ export async function listRawMaterials(req: Request, res: Response, next: NextFu
 export async function getRawMaterial(req: Request, res: Response, next: NextFunction) {
   try {
     const material = await prisma.rawMaterial.findUnique({
-      where: { id: req.params.id },
-      include: {
-        suppliers: {
-          include: { supplier: true, priceHistory: { orderBy: { recordedAt: 'desc' } } },
-          orderBy: { isDefault: 'desc', createdAt: 'asc' }, // Padrão primeiro
-        },
-      },
-    });
+  where: { id: req.params.id },
+  include: {
+    suppliers: {
+      include: { supplier: true, priceHistory: { orderBy: { recordedAt: 'desc' } } },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }], // Padrão primeiro
+    },
+  },
+});
     if (!material) throw new ApiError(404, 'Matéria-prima não encontrada.');
 
     const defaultSupplierEntry = material.suppliers.find((s) => s.isDefault);
