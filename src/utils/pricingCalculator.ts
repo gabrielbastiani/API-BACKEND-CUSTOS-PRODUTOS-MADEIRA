@@ -89,13 +89,21 @@ export function calculateUnitCost(rawMaterial: {
   id: string;
   name: string;
   conversionFactor: Prisma.Decimal | number;
-  suppliers: {
+  suppliers?: {
     isDefault: boolean;
     purchaseQty: Prisma.Decimal | number;
     purchasePrice: Prisma.Decimal | number;
   }[];
 }): number {
-  const defaultSupplier = rawMaterial.suppliers.find((s) => s.isDefault);
+  const suppliers = rawMaterial.suppliers;
+
+  if (!Array.isArray(suppliers)) {
+    throw new Error(
+      `Não foi possível calcular o custo da matéria-prima "${rawMaterial.name}": os fornecedores não foram carregados.`
+    );
+  }
+
+  const defaultSupplier = suppliers.find((supplier) => supplier.isDefault);
 
   if (!defaultSupplier) {
     throw new Error(
@@ -110,7 +118,9 @@ export function calculateUnitCost(rawMaterial: {
   const totalUsageUnitsInPurchase = purchaseQty * conversionFactor;
 
   if (totalUsageUnitsInPurchase <= 0) {
-    throw new Error('Configuração inválida: quantidade comprada ou fator de conversão inválido.');
+    throw new Error(
+      'Configuração inválida: quantidade comprada ou fator de conversão inválido.'
+    );
   }
 
   return purchasePrice / totalUsageUnitsInPurchase;
