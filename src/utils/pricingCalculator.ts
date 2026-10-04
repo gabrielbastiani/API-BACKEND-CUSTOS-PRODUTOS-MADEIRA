@@ -27,6 +27,17 @@ type LaborForCalc = {
   };
 };
 
+export type OverheadInput =
+  | { mode: 'MANUAL'; overheadPercent: number }
+  | {
+      mode: 'AUTOMATIC';
+      overheadCostPerUnit: number;
+      monthlyProductiveHours: number;
+      unitsProducibleMonthly: number;
+      totalFixedCostMonthly: number;
+      isConfigured: boolean;
+    };
+
 export interface MaterialBreakdownItem {
   rawMaterialId: string;
   name: string;
@@ -55,7 +66,7 @@ export interface PricingResult {
   breakdown: {
     materials: MaterialBreakdownItem[];
     labors: LaborBreakdownItem[];
-    overheadPercent: number;
+    overhead: OverheadInput;
     marginPercent: number;
   };
 }
@@ -108,7 +119,7 @@ export function calculateUnitCost(rawMaterial: {
 export function calculateProductPricing(
   materials: MaterialForCalc[],
   labors: LaborForCalc[],
-  overheadPercent: number,
+  overheadInput: OverheadInput,
   marginPercent: number
 ): PricingResult {
   const materialBreakdown: MaterialBreakdownItem[] = materials.map((item) => {
@@ -147,7 +158,12 @@ export function calculateProductPricing(
   const laborCost = round2(laborBreakdown.reduce((sum, l) => sum + l.totalCost, 0));
 
   const directCost = materialsCost + laborCost;
-  const overheadCost = round2(directCost * (overheadPercent / 100));
+
+  const overheadCost =
+    overheadInput.mode === 'MANUAL'
+      ? round2(directCost * (overheadInput.overheadPercent / 100))
+      : round2(overheadInput.overheadCostPerUnit);
+
   const subtotalCost = round2(directCost + overheadCost);
   const marginValue = round2(subtotalCost * (marginPercent / 100));
   const finalPrice = round2(subtotalCost + marginValue);
@@ -162,7 +178,7 @@ export function calculateProductPricing(
     breakdown: {
       materials: materialBreakdown,
       labors: laborBreakdown,
-      overheadPercent,
+      overhead: overheadInput,
       marginPercent,
     },
   };

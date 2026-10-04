@@ -22,9 +22,12 @@ import {
   calculateProductCost,
   saveProductCostSnapshot,
   listProductCostHistory,
+  calculateProductBreakEven,
 } from '../controllers/product.controller';
 import { produceProductSchema, idParamSchema as productionIdParamSchema } from '../schemas/production.schema';
 import { produceProduct, listProductionHistory } from '../controllers/production.controller';
+import { generateProductLabels } from '../controllers/product.controller';
+import { generateLabelsSchema } from '../schemas/productLabel.schema';
 
 const router = Router();
 
@@ -51,8 +54,11 @@ router.delete(
 router.get('/:id/calculate', validate(idParamSchema), calculateProductCost);
 router.post('/:id/calculate/save', validate(idParamSchema), saveProductCostSnapshot);
 router.get('/:id/history', validate(idParamSchema), listProductCostHistory);
+router.get('/:id/break-even', validate(idParamSchema), calculateProductBreakEven);
 
 router.post('/:id/produce', validate(produceProductSchema), produceProduct);
 router.get('/:id/production-history', validate(productionIdParamSchema), listProductionHistory);
+
+router.post('/labels/generate', validate(generateLabelsSchema), generateProductLabels);
 
 export default router;

@@ -5,12 +5,14 @@ export const overheadItemSchema = z.object({
   name: z.string().min(1, 'Nome do custo indireto é obrigatório'),
   value: z.number().nonnegative('Valor não pode ser negativo'),
 });
+export const overheadModeSchema = z.enum(['MANUAL', 'AUTOMATIC']);
 
 export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(2, 'Nome deve ter ao menos 2 caracteres'),
     description: z.string().optional(),
     marginPercent: z.number().min(0).max(1000).default(0),
+    overheadMode: overheadModeSchema.optional().default('MANUAL'),
     overheadItems: z.array(overheadItemSchema).optional().default([]),
     materials: z
       .array(
@@ -40,6 +42,7 @@ export const updateProductSchema = z.object({
     name: z.string().min(2).optional(),
     description: z.string().optional(),
     marginPercent: z.number().min(0).max(1000).optional(),
+    overheadMode: overheadModeSchema.optional(),
     overheadItems: z.array(overheadItemSchema).optional(),
   }),
 });
