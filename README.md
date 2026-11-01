@@ -19,7 +19,7 @@ Crie um arquivo `.env` com base no `.env.example` e configure nele a string de c
 Aplique as migrations para criar ou atualizar a estrutura do banco e gere o cliente do Prisma:
 
 ```bash
-npx prisma migrate dev
+npx prisma migrate dev = ou deploy no lugar de dev para por em produção
 npx prisma generate
 ```
 
