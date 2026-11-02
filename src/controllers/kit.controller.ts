@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
+import { deleteStoredUpload } from '../config/storage';
 import { ApiError } from '../utils/ApiError';
 import { calculateProductPricing, PricingResult } from '../utils/pricingCalculator';
 
@@ -62,7 +63,7 @@ async function calculateSingleProductSubtotalCost(productId: string): Promise<{
   const result: PricingResult = calculateProductPricing(
     product.materials,
     product.labors,
-    Number(product.overheadPercent),
+    { mode: 'MANUAL', overheadPercent: Number(product.overheadPercent) },
     0
   );
 
@@ -202,7 +203,17 @@ export async function updateKit(req: Request, res: Response, next: NextFunction)
 
 export async function deleteKit(req: Request, res: Response, next: NextFunction) {
   try {
-    await prisma.kit.delete({ where: { id: req.params.id } });
+    const ownerId = req.params.id;
+    const images = await prisma.image.findMany({
+      where: { ownerType: 'KIT', ownerId },
+    });
+
+    await prisma.$transaction([
+      prisma.image.deleteMany({ where: { ownerType: 'KIT', ownerId } }),
+      prisma.kit.delete({ where: { id: ownerId } }),
+    ]);
+    await Promise.all(images.map((image) => deleteStoredUpload(image.url)));
+
     res.status(204).send();
   } catch (error) {
     next(error);

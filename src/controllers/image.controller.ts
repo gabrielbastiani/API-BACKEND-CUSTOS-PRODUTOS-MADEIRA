@@ -1,9 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import fs from 'fs';
-import path from 'path';
+import { unlink } from 'node:fs/promises';
 import { prisma } from '../config/prisma';
 import { ApiError } from '../utils/ApiError';
-import { uploadDirPath } from '../config/upload';
+import { deleteStoredUpload, getPublicUploadUrl } from '../config/storage';
 
 const OWNER_TYPE_MAP: Record<string, 'RAW_MATERIAL' | 'SUPPLIER' | 'PRODUCT' | 'KIT'> = {
   'raw-materials': 'RAW_MATERIAL',
@@ -37,12 +36,13 @@ async function assertOwnerExists(ownerType: string, ownerId: string) {
 }
 
 export async function uploadImages(req: Request, res: Response, next: NextFunction) {
+  const files = req.files as Express.Multer.File[] | undefined;
+
   try {
     const { ownerType: routeSegment, ownerId } = req.params;
     const ownerType = resolveOwnerType(routeSegment);
     await assertOwnerExists(ownerType, ownerId);
 
-    const files = req.files as Express.Multer.File[] | undefined;
     if (!files || files.length === 0) {
       throw new ApiError(400, 'Nenhum arquivo de imagem foi enviado.');
     }
@@ -53,8 +53,8 @@ export async function uploadImages(req: Request, res: Response, next: NextFuncti
           data: {
             ownerType,
             ownerId,
-            url: `/uploads/${file.filename}`,
-            filename: file.originalname,
+            url: getPublicUploadUrl(file.filename),
+            filename: normalizeOriginalFilename(file.originalname),
           },
         })
       )
@@ -62,8 +62,27 @@ export async function uploadImages(req: Request, res: Response, next: NextFuncti
 
     res.status(201).json({ success: true, data: created });
   } catch (error) {
+    // O Multer grava antes de o controller executar. Se a validação do dono
+    // ou a transação do banco falhar, removemos os arquivos recém-enviados.
+    await Promise.all(
+      (files ?? []).map((file) =>
+        unlink(file.path).catch((cleanupError) => {
+          if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') {
+            console.error('[images] Falha ao limpar upload não persistido:', cleanupError);
+          }
+        })
+      )
+    );
     next(error);
   }
+}
+
+function normalizeOriginalFilename(filename: string): string {
+  const normalized = filename.normalize('NFC');
+  if (!/[ÃÂ]/.test(normalized)) return normalized;
+
+  const decoded = Buffer.from(normalized, 'latin1').toString('utf8');
+  return decoded.includes('\uFFFD') ? normalized : decoded.normalize('NFC');
 }
 
 export async function listImages(req: Request, res: Response, next: NextFunction) {
@@ -91,12 +110,11 @@ export async function deleteImage(req: Request, res: Response, next: NextFunctio
       throw new ApiError(404, 'Imagem não encontrada.');
     }
 
-    const filePath = path.join(uploadDirPath, path.basename(image.url));
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-
+    // Primeiro remove a referência do banco; uma falha física posterior
+    // pode deixar apenas um arquivo órfão, mas nunca uma imagem apontando
+    // para um arquivo que já foi apagado.
     await prisma.image.delete({ where: { id: imageId } });
+    await deleteStoredUpload(image.url);
 
     res.status(204).send();
   } catch (error) {

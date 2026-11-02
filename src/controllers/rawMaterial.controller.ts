@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
+import { deleteStoredUpload } from '../config/storage';
 import { ApiError } from '../utils/ApiError';
 import { calculateUnitCost } from '../utils/pricingCalculator';
 import { Prisma } from '@prisma/client';
@@ -211,7 +212,17 @@ export async function updateRawMaterial(req: Request, res: Response, next: NextF
 
 export async function deleteRawMaterial(req: Request, res: Response, next: NextFunction) {
   try {
-    await prisma.rawMaterial.delete({ where: { id: req.params.id } });
+    const ownerId = req.params.id;
+    const images = await prisma.image.findMany({
+      where: { ownerType: 'RAW_MATERIAL', ownerId },
+    });
+
+    await prisma.$transaction([
+      prisma.image.deleteMany({ where: { ownerType: 'RAW_MATERIAL', ownerId } }),
+      prisma.rawMaterial.delete({ where: { id: ownerId } }),
+    ]);
+    await Promise.all(images.map((image) => deleteStoredUpload(image.url)));
+
     res.status(204).send();
   } catch (error) {
     next(error);

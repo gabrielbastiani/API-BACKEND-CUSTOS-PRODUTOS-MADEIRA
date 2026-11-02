@@ -1,35 +1,38 @@
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import crypto from 'crypto';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { uploadDirPath } from './storage';
 
-const uploadDir = path.join(process.cwd(), 'uploads');
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const allowedExtensions: Record<string, string[]> = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/webp': ['.webp'],
+  'image/gif': ['.gif'],
+};
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, uploadDir);
+    cb(null, uploadDirPath);
   },
   filename: (_req, file, cb) => {
-    const uniqueSuffix = crypto.randomUUID();
-    const ext = path.extname(file.originalname);
-    cb(null, `${uniqueSuffix}${ext}`);
+    const extension = path.extname(file.originalname).toLowerCase();
+    cb(null, `${crypto.randomUUID()}${extension}`);
   },
 });
 
 function fileFilter(
-  _req: unknown,
+  _req: Express.Request,
   file: Express.Multer.File,
   cb: multer.FileFilterCallback
 ) {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  if (!allowedTypes.includes(file.mimetype)) {
-    cb(new Error('Tipo de arquivo não permitido. Envie apenas imagens (JPEG, PNG, WEBP ou GIF).'));
+  const extension = path.extname(file.originalname).toLowerCase();
+  const extensionsForMime = allowedExtensions[file.mimetype];
+
+  if (!extensionsForMime || !extensionsForMime.includes(extension)) {
+    cb(new Error('Tipo de arquivo não permitido. Envie imagens JPEG, PNG, WEBP ou GIF.'));
     return;
   }
+
   cb(null, true);
 }
 
@@ -37,9 +40,7 @@ export const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB por imagem
+    fileSize: 5 * 1024 * 1024,
     files: 10,
   },
 });
-
-export const uploadDirPath = uploadDir;

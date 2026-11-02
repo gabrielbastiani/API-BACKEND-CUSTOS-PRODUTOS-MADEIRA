@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
+import { deleteStoredUpload } from '../config/storage';
 import { ApiError } from '../utils/ApiError';
 
 export async function createSupplier(req: Request, res: Response, next: NextFunction) {
@@ -47,7 +48,17 @@ export async function updateSupplier(req: Request, res: Response, next: NextFunc
 
 export async function deleteSupplier(req: Request, res: Response, next: NextFunction) {
   try {
-    await prisma.supplier.delete({ where: { id: req.params.id } });
+    const ownerId = req.params.id;
+    const images = await prisma.image.findMany({
+      where: { ownerType: 'SUPPLIER', ownerId },
+    });
+
+    await prisma.$transaction([
+      prisma.image.deleteMany({ where: { ownerType: 'SUPPLIER', ownerId } }),
+      prisma.supplier.delete({ where: { id: ownerId } }),
+    ]);
+    await Promise.all(images.map((image) => deleteStoredUpload(image.url)));
+
     res.status(204).send();
   } catch (error) {
     next(error);

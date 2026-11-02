@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -8,7 +7,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import routes from './routes';
 import { errorHandler } from './middlewares/errorHandler';
-import { uploadDirPath } from './config/upload';
+import { uploadDirPath } from './config/storage';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,7 +30,22 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-app.use('/uploads', express.static(uploadDirPath));
+// Arquivos ficam fora do build da API e em um diretório persistente,
+// configurável por UPLOAD_DIR em produção. As URLs públicas são sempre
+// relativas ao host da API: /uploads/<arquivo>.
+app.use(
+  '/uploads',
+  express.static(uploadDirPath, {
+    dotfiles: 'deny',
+    index: false,
+    immutable: true,
+    maxAge: '1d',
+    setHeaders: (res) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    },
+  })
+);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -1,16 +1,18 @@
 import { Prisma } from '@prisma/client';
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
+import { deleteStoredUpload } from '../config/storage';
 import { ApiError } from '../utils/ApiError';
 import { calculateProductPricing } from '../utils/pricingCalculator';
 import { calculateAutomaticOverhead } from '../utils/overheadCalculator';
 import { OverheadInput } from '../utils/pricingCalculator';
 import { calculateBreakEven } from '../utils/breakEvenCalculator';
-import { generateProductLabelsPdf, LabelFormat } from '../utils/pdf/productLabelPdf';
+import { generateProductLabelsPdf, LabelLayout } from '../utils/pdf/productLabelPdf';
+import { readStoredUpload } from '../config/storage';
 
 export async function generateProductLabels(req: Request, res: Response, next: NextFunction) {
   try {
-    const { productIds, format } = req.body as { productIds: string[]; format: LabelFormat };
+    const { productIds, format } = req.body as { productIds: string[]; format?: LabelLayout };
 
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
@@ -50,11 +52,14 @@ export async function generateProductLabels(req: Request, res: Response, next: N
           Number(product.marginPercent)
         );
 
+        const storedImageUrl = imagesByProductId.get(product.id);
+        const imageBuffer = storedImageUrl ? await readStoredUpload(storedImageUrl) : null;
+
         return {
+          id: product.id,
           name: product.name,
-          description: product.description,
           finalPrice: pricing.finalPrice,
-          imageUrl: imagesByProductId.get(product.id) ?? null,
+          imageBuffer,
         };
       })
     );
@@ -200,7 +205,12 @@ async function calculateDirectCost(productId: string): Promise<number> {
 
   if (!product) return 0;
 
-  const result = calculateProductPricing(product.materials, product.labors, 0, 0);
+  const result = calculateProductPricing(
+    product.materials,
+    product.labors,
+    { mode: 'MANUAL', overheadPercent: 0 },
+    0
+  );
   return result.materialsCost + result.laborCost;
 }
 
@@ -357,7 +367,17 @@ export async function updateProduct(req: Request, res: Response, next: NextFunct
 
 export async function deleteProduct(req: Request, res: Response, next: NextFunction) {
   try {
-    await prisma.product.delete({ where: { id: req.params.id } });
+    const ownerId = req.params.id;
+    const images = await prisma.image.findMany({
+      where: { ownerType: 'PRODUCT', ownerId },
+    });
+
+    await prisma.$transaction([
+      prisma.image.deleteMany({ where: { ownerType: 'PRODUCT', ownerId } }),
+      prisma.product.delete({ where: { id: ownerId } }),
+    ]);
+    await Promise.all(images.map((image) => deleteStoredUpload(image.url)));
+
     res.status(204).send();
   } catch (error) {
     next(error);

@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma';
 import { ApiError } from '../utils/ApiError';
 import { calculateProductPricing } from '../utils/pricingCalculator';
 import { calculateAutomaticOverhead } from '../utils/overheadCalculator';
+import { readStoredUpload } from '../config/storage';
 import { generateProductLabelsPdf, ProductLabelData, LabelLayout } from '../utils/pdf/productLabelPdf';
 import { Prisma } from '@prisma/client';
 
@@ -81,13 +82,7 @@ export async function generateProductLabels(req: Request, res: Response, next: N
   Number(product.marginPercent)
 );
 
-console.log('DEBUG etiqueta', {
-  productId: product.id,
-  productName: product.name,
-  overheadInput,
-  finalPrice: pricing.finalPrice,
-  subtotalCost: pricing.subtotalCost,
-});
+
 
       const image = await prisma.image.findFirst({
         where: { ownerType: 'PRODUCT', ownerId: product.id },
@@ -98,7 +93,7 @@ console.log('DEBUG etiqueta', {
         id: product.id,
         name: product.name,
         finalPrice: pricing.finalPrice,
-        imageUrl: image?.url ?? null,
+        imageBuffer: image?.url ? await readStoredUpload(image.url) : null,
       });
     }
 
